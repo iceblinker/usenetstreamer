@@ -102,7 +102,7 @@ const FAILURE_VIDEO_FILENAME = 'failure_video.mp4';
 const FAILURE_VIDEO_PATH = path.resolve(__dirname, 'assets', FAILURE_VIDEO_FILENAME);
 const STREAM_HIGH_WATER_MARK = (() => {
   const parsed = Number(process.env.STREAM_HIGH_WATER_MARK);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4 * 1024 * 1024;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1024 * 1024;
 })();
 
 const CINEMETA_URL = 'https://v3-cinemeta.strem.io/meta';
@@ -127,6 +127,20 @@ const NZBDAV_VIDEO_EXTENSIONS = new Set([
   '.mpeg'
 ]);
 const NZBDAV_SUPPORTED_METHODS = new Set(['GET', 'HEAD']);
+const VIDEO_MIME_MAP = new Map([
+  ['.mp4', 'video/mp4'],
+  ['.m4v', 'video/mp4'],
+  ['.mkv', 'video/x-matroska'],
+  ['.webm', 'video/webm'],
+  ['.avi', 'video/x-msvideo'],
+  ['.mov', 'video/quicktime'],
+  ['.wmv', 'video/x-ms-wmv'],
+  ['.flv', 'video/x-flv'],
+  ['.ts', 'video/mp2t'],
+  ['.m2ts', 'video/mp2t'],
+  ['.mpg', 'video/mpeg'],
+  ['.mpeg', 'video/mpeg']
+]);
 
 function ensureNzbdavConfigured() {
   if (!NZBDAV_URL) {
@@ -661,6 +675,12 @@ function normalizeNzbdavPath(pathValue) {
   return normalized.startsWith('/') ? normalized : `/${normalized}`;
 }
 
+function inferMimeType(fileName) {
+  if (!fileName) return 'application/octet-stream';
+  const ext = posixPath.extname(fileName.toLowerCase());
+  return VIDEO_MIME_MAP.get(ext) || 'application/octet-stream';
+}
+
 async function safeStat(filePath) {
   try {
     return await fs.promises.stat(filePath);
@@ -994,6 +1014,7 @@ async function proxyNzbdavStream(req, res, viewPath, fileNameHint = '') {
   if (req.headers['accept-language']) headers['Accept-Language'] = req.headers['accept-language'];
   if (req.headers['accept-encoding']) headers['Accept-Encoding'] = req.headers['accept-encoding'];
   if (req.headers['user-agent']) headers['User-Agent'] = req.headers['user-agent'];
+  if (!headers['Accept-Encoding']) headers['Accept-Encoding'] = 'identity';
   if (emulateHead && !headers.Range) {
     headers.Range = 'bytes=0-0';
   }
@@ -1018,13 +1039,29 @@ async function proxyNzbdavStream(req, res, viewPath, fileNameHint = '') {
 
   const nzbdavResponse = await axios.request(requestConfig);
 
-  res.status(nzbdavResponse.status);
+  let responseStatus = nzbdavResponse.status;
+  const responseHeadersLower = Object.keys(nzbdavResponse.headers || {}).reduce((map, key) => {
+    map[key.toLowerCase()] = nzbdavResponse.headers[key];
+    return map;
+  }, {});
+
+  const incomingContentRange = responseHeadersLower['content-range'];
+  if (incomingContentRange && responseStatus === 200) {
+    responseStatus = 206;
+  }
+
+  res.status(responseStatus);
+
+  const headerBlocklist = new Set(['transfer-encoding', 'www-authenticate', 'set-cookie', 'cookie', 'authorization']);
 
   Object.entries(nzbdavResponse.headers || {}).forEach(([key, value]) => {
-    if (key.toLowerCase() === 'transfer-encoding') {
+    const lowerKey = key.toLowerCase();
+    if (headerBlocklist.has(lowerKey)) {
       return;
     }
-    res.setHeader(key, value);
+    if (value !== undefined) {
+      res.setHeader(key, value);
+    }
   });
 
   const incomingDisposition = nzbdavResponse.headers?.['content-disposition'];
@@ -1032,6 +1069,35 @@ async function proxyNzbdavStream(req, res, viewPath, fileNameHint = '') {
   if (!hasFilenameInDisposition) {
     res.setHeader('Content-Disposition', `inline; filename="${sanitizedFileName}"`);
   }
+
+  const inferredMime = inferMimeType(sanitizedFileName);
+  if (!res.getHeader('Content-Type') || res.getHeader('Content-Type') === 'application/octet-stream') {
+    res.setHeader('Content-Type', inferredMime);
+  }
+
+  const acceptRangesHeader = res.getHeader('Accept-Ranges');
+  if (!acceptRangesHeader) {
+    res.setHeader('Accept-Ranges', 'bytes');
+  }
+
+  let contentLengthHeader = res.getHeader('Content-Length');
+  if ((!contentLengthHeader || Number(contentLengthHeader) === 0) && incomingContentRange) {
+    const match = incomingContentRange.match(/bytes\s+(\d+)-(\d+)\/(\d+|\*)/i);
+    if (match) {
+      const start = Number(match[1]);
+      const end = Number(match[2]);
+      const chunkLength = Number.isFinite(start) && Number.isFinite(end) ? end - start + 1 : null;
+      if (Number.isFinite(chunkLength)) {
+        res.setHeader('Content-Length', String(chunkLength));
+      }
+      if (match[3] && match[3] !== '*' && !res.getHeader('X-Total-Length')) {
+        res.setHeader('X-Total-Length', match[3]);
+      }
+    }
+  }
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length,Content-Range,Content-Type');
 
   if (emulateHead || !nzbdavResponse.data || typeof nzbdavResponse.data.pipe !== 'function') {
     if (nzbdavResponse.data && typeof nzbdavResponse.data.destroy === 'function') {
@@ -1548,6 +1614,22 @@ async function handleNzbdavStream(req, res) {
     const streamData = await getOrCreateNzbdavStream(cacheKey, () =>
       buildNzbdavStream({ downloadUrl, category, title, requestedEpisode })
     );
+
+      if ((req.method || 'GET').toUpperCase() === 'HEAD') {
+        const inferredMime = inferMimeType(streamData.fileName || title || 'stream');
+        const totalSize = Number.isFinite(streamData.size) ? streamData.size : undefined;
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Type', inferredMime);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Length,Content-Range,Content-Type');
+        res.setHeader('Content-Disposition', `inline; filename="${(streamData.fileName || 'stream').replace(/[\/:*?"<>|]+/g, '_')}"`);
+        if (Number.isFinite(totalSize)) {
+          res.setHeader('Content-Length', String(totalSize));
+          res.setHeader('X-Total-Length', String(totalSize));
+        }
+        res.status(200).end();
+        return;
+      }
 
     await proxyNzbdavStream(req, res, streamData.viewPath, streamData.fileName || '');
   } catch (error) {
