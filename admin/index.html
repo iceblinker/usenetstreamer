@@ -55,6 +55,10 @@
               <input name="INDEXER_MANAGER_INDEXERS" type="text" placeholder="-1 or sci-fi,4k" />
               <span class="field-hint">Comma-separated list of indexers this addon may query. Prowlarr: numeric IDs, with -1 meaning “all Usenet indexers”. NZBHydra: type the indexer names exactly as shown in Hydra.</span>
             </label>
+            <label>Paid Indexers (comma separated)
+              <input name="NZB_TRIAGE_PRIORITY_INDEXERS" type="text" placeholder="9,33" />
+              <span class="field-hint">Subset of the above list that gets triaged first. Must be a comma-separated subset of “Indexer IDs / Names”.</span>
+            </label>
             <label class="checkbox">
               <input name="INDEXER_MANAGER_STRICT_ID_MATCH" type="checkbox" />
               <span>Strict ID Matching Only</span>
@@ -120,10 +124,6 @@
             </label>
             <label>Max Candidates
               <input name="NZB_TRIAGE_MAX_CANDIDATES" type="number" min="1" step="1" />
-            </label>
-            <label>Paid Indexers (comma separated)
-              <input name="NZB_TRIAGE_PRIORITY_INDEXERS" type="text" placeholder="9,33" />
-              <span class="field-hint">Subset of the above list that gets triaged first. Must be a comma-separated subset of “Indexer IDs / Names”.</span>
             </label>
             <label>Max NNTP Connections
               <input name="NZB_TRIAGE_MAX_CONNECTIONS" type="number" min="1" step="1" />
