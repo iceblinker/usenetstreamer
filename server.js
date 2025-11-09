@@ -240,7 +240,7 @@ function buildTriageNntpConfig() {
 }
 
 const TRIAGE_ENABLED = toBoolean(process.env.NZB_TRIAGE_ENABLED, false);
-const TRIAGE_TIME_BUDGET_MS = toPositiveInt(process.env.NZB_TRIAGE_TIME_BUDGET_MS, 12000);
+const TRIAGE_TIME_BUDGET_MS = toPositiveInt(process.env.NZB_TRIAGE_TIME_BUDGET_MS, 30000);
 const TRIAGE_MAX_CANDIDATES = toPositiveInt(process.env.NZB_TRIAGE_MAX_CANDIDATES, 25);
 const TRIAGE_DOWNLOAD_CONCURRENCY = toPositiveInt(process.env.NZB_TRIAGE_DOWNLOAD_CONCURRENCY, 8);
 const TRIAGE_DOWNLOAD_TIMEOUT_MS = toPositiveInt(process.env.NZB_TRIAGE_DOWNLOAD_TIMEOUT_MS, 10000);
@@ -251,8 +251,8 @@ const TRIAGE_PREFERRED_SIZE_BYTES = Number.isFinite(TRIAGE_PREFERRED_SIZE_GB) &&
 const TRIAGE_PRIORITY_INDEXERS = parseCommaList(process.env.NZB_TRIAGE_PRIORITY_INDEXERS);
 const TRIAGE_ARCHIVE_DIRS = parsePathList(process.env.NZB_TRIAGE_ARCHIVE_DIRS);
 const TRIAGE_NNTP_CONFIG = buildTriageNntpConfig();
-const TRIAGE_STAT_TIMEOUT_MS = toPositiveInt(process.env.NZB_TRIAGE_STAT_TIMEOUT_MS, 1200);
-const TRIAGE_FETCH_TIMEOUT_MS = toPositiveInt(process.env.NZB_TRIAGE_FETCH_TIMEOUT_MS, 7000);
+const TRIAGE_STAT_TIMEOUT_MS = toPositiveInt(process.env.NZB_TRIAGE_STAT_TIMEOUT_MS, 10000);
+const TRIAGE_FETCH_TIMEOUT_MS = toPositiveInt(process.env.NZB_TRIAGE_FETCH_TIMEOUT_MS, 10000);
 const TRIAGE_MAX_DECODED_BYTES = toPositiveInt(process.env.NZB_TRIAGE_MAX_DECODED_BYTES, 32 * 1024);
 const TRIAGE_NNTP_MAX_CONNECTIONS = toPositiveInt(process.env.NZB_TRIAGE_MAX_CONNECTIONS, 60);
 const TRIAGE_MAX_PARALLEL_NZBS = toPositiveInt(process.env.NZB_TRIAGE_MAX_PARALLEL_NZBS, 16);
