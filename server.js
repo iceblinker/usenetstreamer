@@ -275,10 +275,9 @@ function buildTriageNntpConfig() {
 }
 
 const TRIAGE_ENABLED = toBoolean(process.env.NZB_TRIAGE_ENABLED, false);
-const TRIAGE_TIME_BUDGET_MS = toPositiveInt(process.env.NZB_TRIAGE_TIME_BUDGET_MS, 30000);
+const TRIAGE_TIME_BUDGET_MS = toPositiveInt(process.env.NZB_TRIAGE_TIME_BUDGET_MS, 35000);
 const TRIAGE_MAX_CANDIDATES = toPositiveInt(process.env.NZB_TRIAGE_MAX_CANDIDATES, 25);
 const TRIAGE_DOWNLOAD_CONCURRENCY = toPositiveInt(process.env.NZB_TRIAGE_DOWNLOAD_CONCURRENCY, 8);
-const TRIAGE_DOWNLOAD_TIMEOUT_MS = toPositiveInt(process.env.NZB_TRIAGE_DOWNLOAD_TIMEOUT_MS, 10000);
 const TRIAGE_PREFERRED_SIZE_GB = toFiniteNumber(process.env.NZB_TRIAGE_PREFERRED_SIZE_GB, null);
 const TRIAGE_PREFERRED_SIZE_BYTES = Number.isFinite(TRIAGE_PREFERRED_SIZE_GB) && TRIAGE_PREFERRED_SIZE_GB > 0
   ? TRIAGE_PREFERRED_SIZE_GB * 1024 * 1024 * 1024
@@ -286,8 +285,6 @@ const TRIAGE_PREFERRED_SIZE_BYTES = Number.isFinite(TRIAGE_PREFERRED_SIZE_GB) &&
 const TRIAGE_PRIORITY_INDEXERS = parseCommaList(process.env.NZB_TRIAGE_PRIORITY_INDEXERS);
 const TRIAGE_ARCHIVE_DIRS = parsePathList(process.env.NZB_TRIAGE_ARCHIVE_DIRS);
 const TRIAGE_NNTP_CONFIG = buildTriageNntpConfig();
-const TRIAGE_STAT_TIMEOUT_MS = toPositiveInt(process.env.NZB_TRIAGE_STAT_TIMEOUT_MS, 10000);
-const TRIAGE_FETCH_TIMEOUT_MS = toPositiveInt(process.env.NZB_TRIAGE_FETCH_TIMEOUT_MS, 10000);
 const TRIAGE_MAX_DECODED_BYTES = toPositiveInt(process.env.NZB_TRIAGE_MAX_DECODED_BYTES, 32 * 1024);
 const TRIAGE_NNTP_MAX_CONNECTIONS = toPositiveInt(process.env.NZB_TRIAGE_MAX_CONNECTIONS, 60);
 const TRIAGE_MAX_PARALLEL_NZBS = toPositiveInt(process.env.NZB_TRIAGE_MAX_PARALLEL_NZBS, 16);
@@ -298,8 +295,6 @@ const TRIAGE_NNTP_KEEP_ALIVE_MS = toPositiveInt(process.env.NZB_TRIAGE_NNTP_KEEP
 
 const TRIAGE_BASE_OPTIONS = {
   archiveDirs: TRIAGE_ARCHIVE_DIRS,
-  statTimeoutMs: TRIAGE_STAT_TIMEOUT_MS,
-  fetchTimeoutMs: TRIAGE_FETCH_TIMEOUT_MS,
   maxDecodedBytes: TRIAGE_MAX_DECODED_BYTES,
   nntpMaxConnections: TRIAGE_NNTP_MAX_CONNECTIONS,
   maxParallelNzbs: TRIAGE_MAX_PARALLEL_NZBS,
@@ -307,6 +302,7 @@ const TRIAGE_BASE_OPTIONS = {
   archiveSampleCount: TRIAGE_ARCHIVE_SAMPLE_COUNT,
   reuseNntpPool: TRIAGE_REUSE_POOL,
   nntpKeepAliveMs: TRIAGE_NNTP_KEEP_ALIVE_MS,
+  healthCheckTimeoutMs: TRIAGE_TIME_BUDGET_MS,
 };
 
 const ADMIN_CONFIG_KEYS = [
@@ -336,10 +332,7 @@ const ADMIN_CONFIG_KEYS = [
   'NZB_TRIAGE_PREFERRED_SIZE_GB',
   'NZB_TRIAGE_PRIORITY_INDEXERS',
   'NZB_TRIAGE_DOWNLOAD_CONCURRENCY',
-  'NZB_TRIAGE_DOWNLOAD_TIMEOUT_MS',
   'NZB_TRIAGE_MAX_CONNECTIONS',
-  'NZB_TRIAGE_STAT_TIMEOUT_MS',
-  'NZB_TRIAGE_FETCH_TIMEOUT_MS',
   'NZB_TRIAGE_MAX_PARALLEL_NZBS',
   'NZB_TRIAGE_STAT_SAMPLE_COUNT',
   'NZB_TRIAGE_ARCHIVE_SAMPLE_COUNT',
@@ -2223,7 +2216,6 @@ async function streamHandler(req, res) {
           timeBudgetMs: TRIAGE_TIME_BUDGET_MS,
           maxCandidates: TRIAGE_MAX_CANDIDATES,
           downloadConcurrency: Math.max(1, TRIAGE_MAX_CANDIDATES),
-          downloadTimeoutMs: TRIAGE_DOWNLOAD_TIMEOUT_MS,
           triageOptions: {
             ...TRIAGE_BASE_OPTIONS,
             nntpConfig: { ...TRIAGE_NNTP_CONFIG },
@@ -2477,10 +2469,7 @@ async function streamHandler(req, res) {
       .filter(Boolean);
 
     const streams = decoratedStreams
-      .sort((a, b) => {
-        if (a.triagePriority !== b.triagePriority) return a.triagePriority - b.triagePriority;
-        return (b.size || 0) - (a.size || 0);
-      })
+      .sort((a, b) => (b.size || 0) - (a.size || 0))
       .map((entry) => entry.stream);
 
     const instantCount = streams.filter((stream) => stream?.meta?.cached).length;

@@ -78,7 +78,7 @@ Development builds (`ghcr.io/sanket9225/usenetstreamer:dev`) ship with an NNTP-b
 
 - `NZB_TRIAGE_ENABLED=true`
 - Your NNTP host, port, and credentials (`NZB_TRIAGE_NNTP_HOST`, `NZB_TRIAGE_NNTP_USER`, `NZB_TRIAGE_NNTP_PASS`, etc.)
-- Optional tuning knobs such as `NZB_TRIAGE_MAX_CANDIDATES`, `NZB_TRIAGE_STAT_TIMEOUT_MS`, and `NZB_TRIAGE_REUSE_POOL`
+- Optional tuning knobs such as `NZB_TRIAGE_TIME_BUDGET_MS` (global health-check timeout), `NZB_TRIAGE_MAX_CANDIDATES`, and `NZB_TRIAGE_REUSE_POOL`
 
 When active, the addon downloads a small batch of candidate NZBs, samples their archive headers over NNTP, and prioritises releases that look healthy. The feature is still under active development, so expect defaults to shift between dev builds.
 

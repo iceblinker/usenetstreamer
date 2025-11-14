@@ -3,6 +3,10 @@ const fs = require('fs/promises');
 const path = require('path');
 const NNTPModule = require('nntp/lib/nntp');
 const NNTP = typeof NNTPModule === 'function' ? NNTPModule : NNTPModule?.NNTP;
+function timingLog(event, details) {
+  const payload = details ? { ...details, ts: new Date().toISOString() } : { ts: new Date().toISOString() };
+  console.log(`[NZB TRIAGE][TIMING] ${event}`, payload);
+}
 
 const ARCHIVE_EXTENSIONS = new Set(['.rar', '.r00', '.r01', '.r02', '.7z']);
 const RAR4_SIGNATURE = Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]);
@@ -11,12 +15,11 @@ const RAR5_SIGNATURE = Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x
 const DEFAULT_OPTIONS = {
   archiveDirs: [],
   nntpConfig: null,
-  statTimeoutMs: 8000,
-  fetchTimeoutMs: 20000,
+  healthCheckTimeoutMs: 35000,
   maxDecodedBytes: 16 * 1024,
   nntpMaxConnections: 60,
   reuseNntpPool: true,
-  nntpKeepAliveMs: 30000 ,
+  nntpKeepAliveMs: 5000 ,
   maxParallelNzbs: Number.POSITIVE_INFINITY,
   statSampleCount: 1,
   archiveSampleCount: 1,
@@ -24,25 +27,112 @@ const DEFAULT_OPTIONS = {
 
 let sharedNntpPoolRecord = null;
 let currentMetrics = null;
+const poolStats = {
+  created: 0,
+  reused: 0,
+  closed: 0,
+};
+
+function snapshotPool(pool) {
+  if (!pool) return {};
+  const summary = { size: pool.size ?? 0 };
+  if (typeof pool.getIdleCount === 'function') summary.idle = pool.getIdleCount();
+  if (typeof pool.getLastUsed === 'function') summary.idleMs = Date.now() - pool.getLastUsed();
+  return summary;
+}
+
+function recordPoolCreate(pool, meta = {}) {
+  poolStats.created += 1;
+  if (currentMetrics) currentMetrics.poolCreates += 1;
+  timingLog('nntp-pool:created', {
+    ...snapshotPool(pool),
+    ...meta,
+    totals: { ...poolStats },
+  });
+}
+
+function recordPoolReuse(pool, meta = {}) {
+  poolStats.reused += 1;
+  if (currentMetrics) currentMetrics.poolReuses += 1;
+  timingLog('nntp-pool:reused', {
+    ...snapshotPool(pool),
+    ...meta,
+    totals: { ...poolStats },
+  });
+}
+
+async function closePool(pool, reason) {
+  if (!pool) return;
+  const poolSnapshot = snapshotPool(pool);
+  await pool.close();
+  poolStats.closed += 1;
+  if (currentMetrics) currentMetrics.poolCloses += 1;
+  timingLog('nntp-pool:closed', {
+    reason,
+    ...poolSnapshot,
+    totals: { ...poolStats },
+  });
+}
+
+async function preWarmNntpPool(options = {}) {
+  const config = { ...DEFAULT_OPTIONS, ...options };
+  if (!config.reuseNntpPool) return;
+  if (!config.nntpConfig || !NNTP) return;
+
+  const desiredConnections = config.nntpMaxConnections ?? 1;
+  const keepAliveMs = Number.isFinite(config.nntpKeepAliveMs) ? config.nntpKeepAliveMs : 0;
+  const poolKey = buildPoolKey(config.nntpConfig, desiredConnections, keepAliveMs);
+
+  if (sharedNntpPoolRecord?.key === poolKey && sharedNntpPoolRecord?.pool) {
+    if (typeof sharedNntpPoolRecord.pool.touch === 'function') {
+      sharedNntpPoolRecord.pool.touch();
+    }
+    return;
+  }
+
+  try {
+    const freshPool = await createNntpPool(config.nntpConfig, desiredConnections, { keepAliveMs });
+    if (sharedNntpPoolRecord?.pool) {
+      try {
+        await closePool(sharedNntpPoolRecord.pool, 'prewarm-replaced');
+      } catch (closeErr) {
+        console.warn('[NZB TRIAGE] Failed to close previous pre-warmed NNTP pool', closeErr?.message || closeErr);
+      }
+    }
+    sharedNntpPoolRecord = { key: poolKey, pool: freshPool, keepAliveMs };
+    recordPoolCreate(freshPool, { reason: 'prewarm' });
+  } catch (err) {
+    console.warn('[NZB TRIAGE] Failed to pre-warm NNTP pool', {
+      message: err?.message,
+      code: err?.code,
+      name: err?.name,
+    });
+  }
+}
 
 async function triageNzbs(nzbStrings, options = {}) {
   const config = { ...DEFAULT_OPTIONS, ...options };
+  const healthTimeoutMs = Number.isFinite(config.healthCheckTimeoutMs) && config.healthCheckTimeoutMs > 0
+    ? config.healthCheckTimeoutMs
+    : DEFAULT_OPTIONS.healthCheckTimeoutMs;
   const start = Date.now();
   const decisions = [];
 
   currentMetrics = {
     statCalls: 0,
     statSuccesses: 0,
-    statTimeouts: 0,
     statMissing: 0,
     statErrors: 0,
     statDurationMs: 0,
     bodyCalls: 0,
     bodySuccesses: 0,
-    bodyTimeouts: 0,
     bodyMissing: 0,
     bodyErrors: 0,
     bodyDurationMs: 0,
+    poolCreates: 0,
+    poolReuses: 0,
+    poolCloses: 0,
+    clientAcquisitions: 0,
   };
 
   let nntpError = null;
@@ -57,17 +147,21 @@ async function triageNzbs(nzbStrings, options = {}) {
       if (sharedNntpPoolRecord && typeof sharedNntpPoolRecord.pool?.touch === 'function') {
         sharedNntpPoolRecord.pool.touch();
       }
+      recordPoolReuse(nntpPool, { reason: 'config-match' });
     } else {
       try {
         const freshPool = await createNntpPool(config.nntpConfig, desiredConnections, { keepAliveMs });
+        const creationReason = sharedNntpPoolRecord?.pool ? 'refresh' : 'bootstrap';
         nntpPool = freshPool;
         if (config.reuseNntpPool) {
           if (sharedNntpPoolRecord?.pool) {
-            await sharedNntpPoolRecord.pool.close();
+            await closePool(sharedNntpPoolRecord.pool, 'replaced');
           }
           sharedNntpPoolRecord = { key: poolKey, pool: freshPool, keepAliveMs };
+          recordPoolCreate(freshPool, { reason: creationReason });
         } else {
           shouldClosePool = true;
+          recordPoolCreate(freshPool, { reason: 'one-shot' });
         }
       } catch (err) {
         console.warn('[NZB TRIAGE] Failed to create NNTP pool', {
@@ -85,17 +179,20 @@ async function triageNzbs(nzbStrings, options = {}) {
   }
 
   const parallelLimit = Math.max(1, Math.min(config.maxParallelNzbs ?? Number.POSITIVE_INFINITY, nzbStrings.length));
-  const results = await analyzeWithConcurrency({
-    nzbStrings,
-    parallelLimit,
-    config,
-    nntpPool,
-    nntpError,
-  });
+  const results = await runWithDeadline(
+    () => analyzeWithConcurrency({
+      nzbStrings,
+      parallelLimit,
+      config,
+      nntpPool,
+      nntpError,
+    }),
+    healthTimeoutMs,
+  );
   results.sort((a, b) => a.index - b.index);
   for (const { decision } of results) decisions.push(decision);
 
-  if (shouldClosePool && nntpPool) await nntpPool.close();
+  if (shouldClosePool && nntpPool) await closePool(nntpPool, 'one-shot');
   else if (config.reuseNntpPool && nntpPool && typeof nntpPool.touch === 'function') {
     nntpPool.touch();
   }
@@ -106,6 +203,7 @@ async function triageNzbs(nzbStrings, options = {}) {
   const blockerCounts = buildFlagCounts(decisions, 'blockers');
   const warningCounts = buildFlagCounts(decisions, 'warnings');
   const metrics = currentMetrics;
+  if (metrics) metrics.poolTotals = { ...poolStats };
   currentMetrics = null;
   return { decisions, accepted, rejected, elapsedMs, blockerCounts, warningCounts, metrics };
 }
@@ -125,7 +223,7 @@ async function analyzeSingleNzb(raw, ctx) {
     if (!segmentId || checkedSegments.has(segmentId)) return;
     checkedSegments.add(segmentId);
     try {
-      await statSegment(ctx.nntpPool, segmentId, ctx.config.statTimeoutMs);
+      await statSegment(ctx.nntpPool, segmentId);
       archiveFindings.push({
         source: 'nntp-stat',
         filename: archive.filename,
@@ -134,16 +232,7 @@ async function analyzeSingleNzb(raw, ctx) {
         details: { segmentId },
       });
     } catch (err) {
-      if (err?.code === 'STAT_TIMEOUT') {
-        warnings.add('nntp-stat-timeout');
-        archiveFindings.push({
-          source: 'nntp-stat',
-          filename: archive.filename,
-          subject: archive.subject,
-          status: 'segment-timeout',
-          details: { segmentId },
-        });
-      } else if (err?.code === 'STAT_MISSING' || err?.code === 430) {
+      if (err?.code === 'STAT_MISSING' || err?.code === 430) {
         blockers.add('missing-articles');
         archiveFindings.push({
           source: 'nntp-stat',
@@ -178,7 +267,7 @@ async function analyzeSingleNzb(raw, ctx) {
       const sampledSegments = pickRandomElements(uniqueSegments, statSampleCount);
       await Promise.all(sampledSegments.map(async ({ segmentId, file }) => {
         try {
-          await statSegment(ctx.nntpPool, segmentId, ctx.config.statTimeoutMs);
+          await statSegment(ctx.nntpPool, segmentId);
           archiveFindings.push({
             source: 'nntp-stat',
             filename: file.filename,
@@ -187,16 +276,7 @@ async function analyzeSingleNzb(raw, ctx) {
             details: { segmentId },
           });
         } catch (err) {
-          if (err?.code === 'STAT_TIMEOUT') {
-            warnings.add('nntp-stat-timeout');
-            archiveFindings.push({
-              source: 'nntp-stat',
-              filename: file.filename,
-              subject: file.subject,
-              status: 'segment-timeout',
-              details: { segmentId },
-            });
-          } else if (err?.code === 'STAT_MISSING' || err?.code === 430) {
+          if (err?.code === 'STAT_MISSING' || err?.code === 430) {
             blockers.add('missing-articles');
             archiveFindings.push({
               source: 'nntp-stat',
@@ -485,7 +565,7 @@ async function inspectArchiveViaNntp(file, ctx) {
       statStart = Date.now();
     }
     try {
-      await statSegmentWithClient(client, segmentId, ctx.config.statTimeoutMs);
+      await statSegmentWithClient(client, segmentId);
       if (currentMetrics && statStart !== null) {
         currentMetrics.statSuccesses += 1;
         currentMetrics.statDurationMs += Date.now() - statStart;
@@ -493,11 +573,9 @@ async function inspectArchiveViaNntp(file, ctx) {
     } catch (err) {
       if (currentMetrics && statStart !== null) {
         currentMetrics.statDurationMs += Date.now() - statStart;
-        if (err.code === 'STAT_TIMEOUT') currentMetrics.statTimeouts += 1;
-        else if (err.code === 'STAT_MISSING' || err.code === 430) currentMetrics.statMissing += 1;
+        if (err.code === 'STAT_MISSING' || err.code === 430) currentMetrics.statMissing += 1;
         else currentMetrics.statErrors += 1;
       }
-      if (err.code === 'STAT_TIMEOUT') return { status: 'stat-timeout', details: { segmentId }, segmentId };
       if (err.code === 'STAT_MISSING' || err.code === 430) return { status: 'stat-missing', details: { segmentId }, segmentId };
       return { status: 'stat-error', details: { segmentId, message: err.message }, segmentId };
     }
@@ -509,7 +587,7 @@ async function inspectArchiveViaNntp(file, ctx) {
     }
 
     try {
-      const bodyBuffer = await fetchSegmentBodyWithClient(client, segmentId, ctx.config.fetchTimeoutMs);
+      const bodyBuffer = await fetchSegmentBodyWithClient(client, segmentId);
       const decoded = decodeYencBuffer(bodyBuffer, ctx.config.maxDecodedBytes);
       const archiveResult = inspectArchiveBuffer(decoded);
       if (currentMetrics) {
@@ -520,11 +598,9 @@ async function inspectArchiveViaNntp(file, ctx) {
     } catch (err) {
       if (currentMetrics && bodyStart !== null) currentMetrics.bodyDurationMs += Date.now() - bodyStart;
       if (currentMetrics) {
-        if (err.code === 'BODY_TIMEOUT') currentMetrics.bodyTimeouts += 1;
-        else if (err.code === 'BODY_MISSING') currentMetrics.bodyMissing += 1;
+        if (err.code === 'BODY_MISSING') currentMetrics.bodyMissing += 1;
         else currentMetrics.bodyErrors += 1;
       }
-      if (err.code === 'BODY_TIMEOUT') return { status: 'body-timeout', details: { segmentId }, segmentId };
       if (err.code === 'BODY_MISSING') return { status: 'body-missing', details: { segmentId }, segmentId };
       if (err.code === 'BODY_ERROR') return { status: 'body-error', details: { segmentId, message: err.message }, segmentId };
       if (err.code === 'DECODE_ERROR') return { status: 'decode-error', details: { segmentId, message: err.message }, segmentId };
@@ -555,9 +631,7 @@ function handleArchiveStatus(status, blockers, warnings) {
     case 'rar-insufficient-data':
     case 'rar-header-not-found':
     case 'io-error':
-    case 'stat-timeout':
     case 'stat-error':
-    case 'body-timeout':
     case 'body-error':
     case 'decode-error':
     case 'missing-filename':
@@ -653,25 +727,27 @@ function buildDecision(decision, blockers, warnings, meta) {
   };
 }
 
-function statSegment(pool, segmentId, timeoutMs, attempt = 0) {
+function statSegment(pool, segmentId) {
   if (currentMetrics) currentMetrics.statCalls += 1;
   const start = Date.now();
-  return runWithClient(pool, (client) => statSegmentWithClient(client, segmentId, timeoutMs))
+  timingLog('nntp-stat:start', { segmentId });
+  return runWithClient(pool, (client) => statSegmentWithClient(client, segmentId))
     .then((result) => {
       if (currentMetrics) currentMetrics.statSuccesses += 1;
+      timingLog('nntp-stat:success', { segmentId, durationMs: Date.now() - start });
       return result;
     })
     .catch((err) => {
-      const isTimeout = err?.code === 'STAT_TIMEOUT';
       if (currentMetrics) {
-        if (isTimeout) currentMetrics.statTimeouts += 1;
-        else if (err?.code === 'STAT_MISSING' || err?.code === 430) currentMetrics.statMissing += 1;
+        if (err?.code === 'STAT_MISSING' || err?.code === 430) currentMetrics.statMissing += 1;
         else currentMetrics.statErrors += 1;
       }
-      if (isTimeout && attempt === 0) {
-        const extended = Math.max(timeoutMs * 2, timeoutMs + 1000);
-        return statSegment(pool, segmentId, extended, attempt + 1);
-      }
+      timingLog('nntp-stat:error', {
+        segmentId,
+        durationMs: Date.now() - start,
+        code: err?.code,
+        message: err?.message,
+      });
       throw err;
     })
     .finally(() => {
@@ -679,17 +755,9 @@ function statSegment(pool, segmentId, timeoutMs, attempt = 0) {
     });
 }
 
-function statSegmentWithClient(client, segmentId, timeoutMs) {
+function statSegmentWithClient(client, segmentId) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      const err = new Error('STAT timed out');
-      err.code = 'STAT_TIMEOUT';
-      err.dropClient = true;
-      reject(err);
-    }, timeoutMs);
-
     client.stat(`<${segmentId}>`, (err) => {
-      clearTimeout(timer);
       if (err) {
         const error = new Error(err.message || 'STAT failed');
         const codeFromMessage = err.message && err.message.includes('430') ? 'STAT_MISSING' : err.code;
@@ -705,25 +773,27 @@ function statSegmentWithClient(client, segmentId, timeoutMs) {
   });
 }
 
-function fetchSegmentBody(pool, segmentId, timeoutMs, attempt = 0) {
+function fetchSegmentBody(pool, segmentId) {
   if (currentMetrics) currentMetrics.bodyCalls += 1;
   const start = Date.now();
-  return runWithClient(pool, (client) => fetchSegmentBodyWithClient(client, segmentId, timeoutMs))
+  timingLog('nntp-body:start', { segmentId });
+  return runWithClient(pool, (client) => fetchSegmentBodyWithClient(client, segmentId))
     .then((result) => {
       if (currentMetrics) currentMetrics.bodySuccesses += 1;
+      timingLog('nntp-body:success', { segmentId, durationMs: Date.now() - start });
       return result;
     })
     .catch((err) => {
-      const isTimeout = err?.code === 'BODY_TIMEOUT';
       if (currentMetrics) {
-        if (isTimeout) currentMetrics.bodyTimeouts += 1;
-        else if (err?.code === 'BODY_MISSING') currentMetrics.bodyMissing += 1;
+        if (err?.code === 'BODY_MISSING') currentMetrics.bodyMissing += 1;
         else currentMetrics.bodyErrors += 1;
       }
-      if (isTimeout && attempt === 0) {
-        const extended = Math.max(timeoutMs * 2, timeoutMs + 1000);
-        return fetchSegmentBody(pool, segmentId, extended, attempt + 1);
-      }
+      timingLog('nntp-body:error', {
+        segmentId,
+        durationMs: Date.now() - start,
+        code: err?.code,
+        message: err?.message,
+      });
       throw err;
     })
     .finally(() => {
@@ -731,17 +801,9 @@ function fetchSegmentBody(pool, segmentId, timeoutMs, attempt = 0) {
     });
 }
 
-function fetchSegmentBodyWithClient(client, segmentId, timeoutMs) {
+function fetchSegmentBodyWithClient(client, segmentId) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      const err = new Error('BODY timed out');
-      err.code = 'BODY_TIMEOUT';
-      err.dropClient = true;
-      reject(err);
-    }, timeoutMs);
-
     client.body(`<${segmentId}>`, (err, _articleNumber, _messageId, bodyBuffer) => {
-      clearTimeout(timer);
       if (err) {
         const error = new Error(err.message || 'BODY failed');
         error.code = err.code ?? 'BODY_ERROR';
@@ -901,12 +963,20 @@ async function createNntpPool(config, maxConnections, options = {}) {
     getLastUsed() {
       return lastUsed;
     },
+    getIdleCount() {
+      return idle.length;
+    },
   };
 }
 
 async function runWithClient(pool, handler) {
   if (!pool) throw new Error('NNTP pool unavailable');
+  const acquireStart = Date.now();
   const client = await pool.acquire();
+  timingLog('nntp-client:acquired', {
+    waitDurationMs: Date.now() - acquireStart,
+  });
+  if (currentMetrics) currentMetrics.clientAcquisitions += 1;
   if (!client) throw new Error('NNTP client unavailable');
   let dropClient = false;
   try {
@@ -962,9 +1032,29 @@ async function createNntpClient({ host, port = 119, user, pass, useTLS = false, 
   if (!NNTP) throw new Error('NNTP client unavailable');
 
   const client = new NNTP();
+  const connectStart = Date.now();
+  timingLog('nntp-connect:start', { host, port, useTLS, auth: Boolean(user) });
   await new Promise((resolve, reject) => {
-    client.once('ready', resolve);
+    client.once('ready', () => {
+      timingLog('nntp-connect:ready', {
+        host,
+        port,
+        useTLS,
+        auth: Boolean(user),
+        durationMs: Date.now() - connectStart,
+      });
+      resolve();
+    });
     client.once('error', (err) => {
+      timingLog('nntp-connect:error', {
+        host,
+        port,
+        useTLS,
+        auth: Boolean(user),
+        durationMs: Date.now() - connectStart,
+        code: err?.code,
+        message: err?.message,
+      });
       console.warn('[NZB TRIAGE] NNTP connection error', {
         host,
         port,
@@ -1084,12 +1174,34 @@ function buildPoolKey(config, connections, keepAliveMs = 0) {
 
 async function closeSharedNntpPool() {
   if (sharedNntpPoolRecord?.pool) {
-    await sharedNntpPoolRecord.pool.close();
+    await closePool(sharedNntpPoolRecord.pool, 'manual');
     sharedNntpPoolRecord = null;
   }
 }
 
+function runWithDeadline(factory, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return factory();
+  let timer = null;
+  let operationPromise;
+  try {
+    operationPromise = factory();
+  } catch (err) {
+    return Promise.reject(err);
+  }
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error('Health check timed out');
+      error.code = 'HEALTHCHECK_TIMEOUT';
+      reject(error);
+    }, timeoutMs);
+  });
+  return Promise.race([operationPromise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 module.exports = {
+  preWarmNntpPool,
   triageNzbs,
   closeSharedNntpPool,
 };

@@ -35,11 +35,8 @@ async function main() {
   if (maxConnections !== undefined) triageOptions.nntpMaxConnections = maxConnections;
   else triageOptions.nntpMaxConnections = 60;
 
-  const statTimeout = parseEnvNumber(process.env.NZB_TRIAGE_STAT_TIMEOUT_MS);
-  if (statTimeout !== undefined) triageOptions.statTimeoutMs = statTimeout;
-
-  const fetchTimeout = parseEnvNumber(process.env.NZB_TRIAGE_FETCH_TIMEOUT_MS);
-  if (fetchTimeout !== undefined) triageOptions.fetchTimeoutMs = fetchTimeout;
+  const healthTimeout = parseEnvNumber(process.env.NZB_TRIAGE_TIME_BUDGET_MS);
+  if (healthTimeout !== undefined) triageOptions.healthCheckTimeoutMs = healthTimeout;
 
   const maxDecoded = parseEnvNumber(process.env.NZB_TRIAGE_MAX_DECODED_BYTES);
   if (maxDecoded !== undefined) triageOptions.maxDecodedBytes = maxDecoded;
@@ -162,8 +159,14 @@ function printMetrics(metrics) {
   const avgStat = metrics.statCalls > 0 ? Math.round(metrics.statDurationMs / metrics.statCalls) : 0;
   const avgBody = metrics.bodyCalls > 0 ? Math.round(metrics.bodyDurationMs / metrics.bodyCalls) : 0;
   console.log('  nnpt-calls:');
-  console.log(`    stat: ${metrics.statCalls} (ok ${metrics.statSuccesses}, missing ${metrics.statMissing}, timeouts ${metrics.statTimeouts}, other ${metrics.statErrors}) avg ${avgStat} ms`);
-  console.log(`    body: ${metrics.bodyCalls} (ok ${metrics.bodySuccesses}, missing ${metrics.bodyMissing}, timeouts ${metrics.bodyTimeouts}, other ${metrics.bodyErrors}) avg ${avgBody} ms`);
+  console.log(`    stat: ${metrics.statCalls} (ok ${metrics.statSuccesses}, missing ${metrics.statMissing}, other ${metrics.statErrors}) avg ${avgStat} ms`);
+  console.log(`    body: ${metrics.bodyCalls} (ok ${metrics.bodySuccesses}, missing ${metrics.bodyMissing}, other ${metrics.bodyErrors}) avg ${avgBody} ms`);
+  if (typeof metrics.poolCreates === 'number') {
+    console.log(`  pool: created ${metrics.poolCreates}, reused ${metrics.poolReuses}, closed ${metrics.poolCloses}, acquisitions ${metrics.clientAcquisitions}`);
+  }
+  if (metrics.poolTotals) {
+    console.log(`  pool-totals: created ${metrics.poolTotals.created}, reused ${metrics.poolTotals.reused}, closed ${metrics.poolTotals.closed}`);
+  }
 }
 
 function summarizeArchiveFindings(findings) {
