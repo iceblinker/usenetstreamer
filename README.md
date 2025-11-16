@@ -26,137 +26,181 @@ UsenetStreamer is a Stremio addon that bridges a Usenet indexer manager (Prowlar
 - Flags already-downloaded NZBs as ⚡ Instant so you know which streams will start immediately.
 - Built-in NNTP-backed NZB health triage to surface playable releases first and highlight broken uploads.
 
-### Feature Highlights
+# UsenetStreamer
 
-**NZBHydra Support**  
-Point `INDEXER_MANAGER` to either `prowlarr` or `nzbhydra`—the addon speaks both APIs. Hydra users can still take advantage of IMDb/TVDB/TMDB query plans, fallback text searches, and per-indexer inclusion lists exactly like Prowlarr users.
+<p align="center">
+  <img src="assets/icon.png" alt="UsenetStreamer logo" width="180" />
+</p>
 
-**NZB Health Check**  
-When `NZB_TRIAGE_ENABLED=true`, UsenetStreamer downloads a short list of candidate NZBs, samples their archive headers over NNTP, and bubbles healthy releases to the top while flagging broken or encrypted uploads. Decisions are cached per download URL and per normalized title so later requests inherit the verdict instantly.
+<p align="center">
+  <strong>Your Usenet-powered bridge between Prowlarr/NZBHydra, NZBDav, and Stremio.</strong><br />
+  Query your favorite indexers, stream directly over WebDAV, and manage it all from a friendly web dashboard.
+</p>
 
-**Caching**  
-Two caches keep responses snappy: (1) a stream-response cache keyed by `type/id/episode/query`, which lets Stremio repeat requests without re-querying your indexers, and (2) a verified NZB cache that stores small, triage-approved NZBs in memory so NZBDav can skip an extra fetch. Both caches respect configurable size and TTL limits.
+<p align="center">
+  <a href="https://discord.gg/NJsprZyz"><img src="https://img.shields.io/badge/Discord-Join-blue?logo=discord&logoColor=white" alt="Join Discord" /></a>
+  <a href="https://buymeacoffee.com/gaikwadsank"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-yellow?logo=buymeacoffee&logoColor=white" alt="Buy me a coffee" /></a>
+  <a href="https://github.com/Sanket9225/UsenetStreamer/actions"><img src="https://img.shields.io/github/actions/workflow/status/Sanket9225/UsenetStreamer/docker-publish.yml?label=docker%20build" alt="CI badge" /></a>
+  <a href="https://ghcr.io/sanket9225/usenetstreamer"><img src="https://img.shields.io/badge/Docker-ghcr.io%2Fsanket9225%2Fusenetstreamer-blue?logo=docker" alt="Docker image" /></a>
+</p>
 
-**Language-Based Filtering**  
-Every NZB title is parsed for language tokens (e.g., Hindi, German, Tamil). Choose `language_quality_size` sorting plus `NZB_PREFERRED_LANGUAGE` (or override per request) to have matching releases listed first, followed by other languages ordered by quality and size.
+---
 
-**Instant Tag (NZBDav)**  
-Completed NZBDav history entries and recently mounted NZBs are tracked by normalized title. Whenever the addon notices a match, the resulting stream is labeled `⚡ Instant`, moved to the top of the list, and flagged with metadata so your player knows the file is already cached.
+## 🔗 Quick Links
 
-## Getting Started
+- **Docker image:** `ghcr.io/sanket9225/usenetstreamer:latest`
+- **Admin dashboard:** `https://your-addon-domain/<token>/admin/`
+- **Manifest template:** `https://your-addon-domain/<token>/manifest.json`
+- **Discord:** [Community chat](https://discord.gg/NJsprZyz)
+- **Support:** [Buy me a coffee](https://buymeacoffee.com/gaikwadsank)
+- **Self-hosting guide:** [Jump to instructions](#-deployment)
 
-1. Copy `.env.example` to `.env` and fill in your indexer manager (Prowlarr or NZBHydra), NZBDav credentials, and addon base URL.
-2. Install dependencies:
+---
 
-   ```bash
-   npm install
-   ```
+## ✨ Feature Highlights
 
-3. Start the addon:
+### 🚀 Performance & Caching
+- Parallel queries to Prowlarr or NZBHydra with automatic deduplication.
+- Two-tier cache (Stremio responses + verified NZBs) to keep repeat requests instant.
+- Configurable TTLs and size limits so you can tune memory usage for any server.
 
-   ```bash
-   node server.js
-   ```
+### 🔍 Smart Search & Language Filtering
+- IMDb/TMDB/TVDB-aware search plans and TVDB-prefixed ID support (no Cinemeta needed).
+- Release titles parsed for resolution, quality, and audio language, enabling `quality_then_size` or `language_quality_size` sorting.
+- Preferred language items rise to the top and display with clear 🌐 labels.
 
-### Docker Usage
+### ⚡ Instant Streams from NZBDav
+- Completed NZBDav jobs are recognized automatically and surfaced with a ⚡ tag.
+- Instant streams are floated to the top of the list so you can start watching immediately.
 
-Quick start:
+### 🩺 NNTP Health Checks
+- Optional triage downloads a handful of NZBs, samples archives over NNTP, and flags broken uploads before Stremio sees them.
+- Decisions are cached per download URL and per normalized title, so later requests inherit health verdicts instantly.
+
+### 🔐 Secure-by-Default
+- Shared-secret gate ensures only URLs with `/your-secret/` can load the manifest or streams.
+- Admin dashboard, manifest, and stream endpoints all reuse the same token.
+
+---
+
+## 🗺️ How It Works
+
+1. **Stremio request:** Stremio calls `/stream/<type>/<id>.json` (optionally with `?lang=de` or other hints).
+2. **Indexer search:** UsenetStreamer plans IMDb/TMDB/TVDB searches plus fallbacks and queries Prowlarr/NZBHydra simultaneously.
+3. **Release parsing:** Titles are normalized for resolution, size, and language; oversize files above your cap are dropped.
+4. **Triage & caching (optional):** Health checks sample NZBs via NNTP; decisions and NZBs are cached.
+5. **NZBDav streaming:** Chosen NZBs feed NZBDav, which exposes a WebDAV stream back to Stremio.
+6. **Instant detection:** Completed NZBDav jobs are matched by normalized title and tagged ⚡ for instant playback.
+
+---
+
+## 🐳 Deployment
+
+### Docker (recommended)
 
 ```bash
 docker run -d --restart unless-stopped \
-   --name usenetstreamer \
-   -p 7000:7000 \
-   -e ADDON_SHARED_SECRET=super-secret-token \
-   ghcr.io/sanket9225/usenetstreamer:latest
+  --name usenetstreamer \
+  -p 7000:7000 \
+  -e ADDON_SHARED_SECRET=super-secret-token \
+  ghcr.io/sanket9225/usenetstreamer:latest
 ```
 
-That launches the published multi-arch image (built from v1.3.0), exposes the addon on port `7000`, and locks the manifest behind `/super-secret-token/…`. Add additional `-e` flags (or switch to `--env-file`) to provide your indexer, NZBDav, and NNTP credentials.
+Then browse to `https://your-domain/super-secret-token/admin/` to enter your credentials. The container ships with Node 20, exposes port 7000, and supports both `linux/amd64` and `linux/arm64` thanks to `buildx`.
 
-Need a custom image? Clone this repo, adjust the code, then run `docker build -t usenetstreamer .`.
+### Source installation
 
-`ADDON_SHARED_SECRET` is a user-defined token or passphrase; pick any string you like (letters, digits, symbols). When it is set, every request must include the token as the first path segment (e.g. `https://your-domain/super-secret-token/manifest.json`). Stream URLs emitted by the addon automatically include the same `/super-secret-token/` prefix.
+```bash
+git clone https://github.com/Sanket9225/UsenetStreamer.git
+cd UsenetStreamer
+npm install
+node server.js
+```
 
+Create `.env` (see `.env.example`) or, better, load `http://localhost:7000/<token>/admin/` to configure everything from the UI.
 
-### Admin Dashboard
+### Reverse proxy & HTTPS
 
-Visit `https://your-addon-domain/<token>/admin/` (or `http://localhost:7000/<token>/admin/` during local testing) to manage the addon without touching `.env` files. The dashboard lets you:
+Stremio requires HTTPS. Place Nginx/Caddy/Traefik in front of the addon, terminate TLS, and forward to `http://127.0.0.1:7000`. Expose `/manifest.json`, `/stream/*`, `/nzb/*`, `/assets/*`, and `/admin/*`. Update `ADDON_BASE_URL` accordingly.
 
-- Load and edit all runtime settings, then persist them with **Save & Restart**.
-- Test connections for the indexer manager, NZBDav, and Usenet provider before you commit changes.
-- See the freshly generated manifest URL immediately after saving and copy it with one click.
+---
 
-The dashboard is guarded by the same shared secret that protects your manifest. Anyone with the token can reach it, so keep the token private.
+## 🛠️ Admin Dashboard
 
+Visit `https://your-addon-domain/<token>/admin/` to:
 
-### NNTP Health Check
+- Load and edit every runtime setting with validation and helpful hints.
+- Trigger connection tests for indexer manager, NZBDav, and NNTP provider.
+- Copy the ready-to-use manifest URL right after saving.
+- Restart the addon safely once changes are persisted.
 
-Enable the built-in NNTP-backed NZB triage pipeline by setting:
+The dashboard is protected by the same shared secret as the manifest. Rotate it if you ever suspect exposure.
 
-- `NZB_TRIAGE_ENABLED=true`
-- Your NNTP host, port, and credentials (`NZB_TRIAGE_NNTP_HOST`, `NZB_TRIAGE_NNTP_USER`, `NZB_TRIAGE_NNTP_PASS`, etc.)
-- Optional tuning knobs such as `NZB_TRIAGE_TIME_BUDGET_MS` (global health-check timeout), `NZB_TRIAGE_MAX_CANDIDATES`, and `NZB_TRIAGE_REUSE_POOL`
+---
 
-When active, the addon downloads a small batch of candidate NZBs, samples their archive headers over NNTP, and prioritises releases that look healthy. Tweak the knobs to fit your provider’s limits; health decisions are cached so subsequent requests instantly inherit the verdict.
+## ⚙️ Configuration & Environment Variables *(prefer the admin dashboard)*
 
+The dashboard writes to `config/runtime-env.json`, but the addon still respects traditional env vars for automation or container platforms. Key settings include:
 
-## Environment Variables
+- `INDEXER_MANAGER` (default `prowlarr`) — set `nzbhydra` for Hydra.
+- `INDEXER_MANAGER_URL`, `INDEXER_MANAGER_API_KEY`, `INDEXER_MANAGER_INDEXERS`, `INDEXER_MANAGER_STRICT_ID_MATCH`.
+- `ADDON_BASE_URL` (must be HTTPS), `ADDON_SHARED_SECRET` (required for security).
+- `NZB_SORT_MODE` (`quality_then_size` or `language_quality_size`), `NZB_PREFERRED_LANGUAGE`, `NZB_MAX_RESULT_SIZE_GB` (defaults to 30 GB, set 0 for no cap).
+- `NZBDAV_URL`, `NZBDAV_API_KEY`, `NZBDAV_WEBDAV_URL`, `NZBDAV_WEBDAV_USER`, `NZBDAV_WEBDAV_PASS`, `NZBDAV_CATEGORY*`.
+- `NZBDAV_HISTORY_FETCH_LIMIT`, `NZBDAV_CACHE_TTL_MINUTES` (controls instant detection cache).
+- `NZB_TRIAGE_*` for NNTP health checks (host, port, user/pass, timeouts, candidate counts, reuse pool, etc.).
 
-- `INDEXER_MANAGER`, `INDEXER_MANAGER_URL`, `INDEXER_MANAGER_API_KEY`, `INDEXER_MANAGER_STRICT_ID_MATCH`, `INDEXER_MANAGER_INDEXERS`
-- `NZBDAV_URL`, `NZBDAV_API_KEY`, `NZBDAV_WEBDAV_URL`, `NZBDAV_WEBDAV_USER`, `NZBDAV_WEBDAV_PASS`
-- `ADDON_BASE_URL`, `ADDON_SHARED_SECRET`
-- `NZBDAV_CATEGORY`
-- `NZBDAV_HISTORY_FETCH_LIMIT`, `NZBDAV_CACHE_TTL_MINUTES`
-- `NZB_TRIAGE_*`
+See `.env.example` for the complete list and defaults.
 
-`INDEXER_MANAGER` defaults to `prowlarr`. Set it to `nzbhydra` to target an NZBHydra instance.
+---
 
-`INDEXER_MANAGER_STRICT_ID_MATCH` defaults to `false`. Set it to `true` if you want strictly ID-based searches (IMDb/TVDB/TMDB only). This usually yields faster, more precise matches but many indexers do not support ID queries, so you will receive fewer total results.
+## 🧠 Advanced Capabilities
 
-`INDEXER_MANAGER_INDEXERS` accepts a comma-separated list. For Prowlarr, use indexer IDs (e.g. `1,3,9`; `-1` means “all Usenet indexers”). For NZBHydra, provide the indexer names as displayed in its UI. The addon logs the effective value on each request.
+### Language-based ordering
+- Switch to `language_quality_size` sorting to pin a preferred language (set via dashboard or `NZB_PREFERRED_LANGUAGE`).
+- Matching releases get a ⭐ tag plus `🌐 <Language>` badges, but non-matching streams stay available.
 
-`INDEXER_MANAGER_CACHE_MINUTES` (optional) overrides the default NZBHydra cache duration (10 minutes). Leave unset to keep the default. Prowlarr ignores this value.
+### Instant cache awareness
+- Completed NZBDav titles and still-mounted NZBs are resolved by normalized titles.
+- Instant streams jump to the top of the response and are logged in Stremio metadata (`cached`, `cachedFromHistory`).
 
-`ADDON_SHARED_SECRET` locks access behind a shared token. Anyone visiting the manifest or stream endpoints must prefix the URL with `/<your-secret>/` (e.g. `/super-secret-token/manifest.json`). Stremio supports this out of the box—just add the manifest URL with the token included.
+### Health triage decisions
+- Triage can mark NZBs `✅ verified`, `⚠️ unverified`, or `🚫 blocked`, reflected in stream tags.
+- Approved samples optionally store NZB payloads in memory, letting NZBDav mount them without re-fetching.
 
-`NZBDAV_CATEGORY` optionally overrides the target NZBDav categories. When set (e.g. `Stremio`), movie jobs are queued to `Stremio_MOVIE`, series to `Stremio_TV`, and everything else to `Stremio_DEFAULT`. Leave unset to keep the per-type categories (`NZBDAV_CATEGORY_MOVIES`, `NZBDAV_CATEGORY_SERIES`, etc.).
+---
 
-`NZBDAV_HISTORY_FETCH_LIMIT` controls how many completed NZB history entries we scan when looking for instant playback matches (default 400, capped at 500). `NZBDAV_CACHE_TTL_MINUTES` controls how long stream metadata stays cached in memory (default 1440 minutes = 24 hours). Set `NZBDAV_CACHE_TTL_MINUTES=0` to disable expiration entirely if you want previously mounted NZBs to remain marked as ⚡ Instant until the process restarts.
+## 🖥️ Platform Compatibility
 
-`NZB_TRIAGE_*` toggles the optional NNTP-backed health check. Enable it with `NZB_TRIAGE_ENABLED=true`, provide NNTP credentials (`NZB_TRIAGE_NNTP_HOST`, `NZB_TRIAGE_NNTP_USER`, etc.), and fine-tune the time budget, candidate count, download concurrency, and preferred release size. When enabled, the addon downloads a small batch of candidate NZBs, samples the archive headers over NNTP, and moves verified releases to the top of the stream list while flagging broken uploads.
+| Platform | Status |
+| --- | --- |
+| Stremio 4.x desktop (Win/Linux) | ✅ Tested |
+| Stremio 5.x beta | ✅ Tested |
+| Android TV / Mobile | ✅ Tested |
+| iOS via Safari/TestFlight | ✅ Tested |
+| Web (Chromium-based browsers) | ✅ Tested |
+| tvOS / Apple TV (Omni/Vidi/Fusion) | ✅ Reported working |
 
+Anything that can load HTTPS manifests and handle `externalPlayer` hints should work. Open an issue or drop by Discord if you hit a platform-specific quirk.
 
-See `.env.example` for the authoritative list.
+---
 
-### Choosing an `ADDON_BASE_URL`
+## 🤝 Support & Community
 
-`ADDON_BASE_URL` must be a **public HTTPS domain** that points to your addon deployment. Stremio refuses insecure origins, so you must front the addon with TLS before adding it to the catalog. DuckDNS + Let's Encrypt is an easy path, but any domain/CA combo works.
+- **Discord:** [Join the chat](https://discord.gg/NJsprZyz)
+- **Buy me a coffee:** [Keep development humming](https://buymeacoffee.com/gaikwadsank)
+- **Issues & PRs:** [GitHub tracker](https://github.com/Sanket9225/UsenetStreamer/issues)
 
-1. **Grab a DuckDNS domain (free):**
-   - Sign in at [https://www.duckdns.org](https://www.duckdns.org) with GitHub/Google/etc.
-   - Choose a subdomain (e.g. `myusenet.duckdns.org`) and note the token DuckDNS gives you.
-   - Run their update script (cron/systemd/timer) so the domain always resolves to your server’s IP.
+Huge thanks to everyone testing, filing bugs, and sharing feature ideas.
 
-2. **Serve the addon over HTTPS (non-negotiable):**
-   - Place Nginx, Caddy, or Traefik in front of the Node server.
-   - Issue a certificate:
-     - **Let’s Encrypt** with certbot, lego, or Traefik’s built-in ACME integration for a trusted cert.
-     - DuckDNS also provides an ACME helper if you prefer wildcard certificates.
-   - Terminate TLS at the proxy and forward requests from `https://<your-domain>` to `http://127.0.0.1:7000` (or your chosen port).
-   - Expose `/manifest.json`, `/stream/*`, `/nzb/*`, and `/assets/*`. Stremio will reject plain HTTP URLs.
+---
 
-3. **Update `.env`:** set `ADDON_BASE_URL=https://myusenet.duckdns.org` and restart the addon so manifests reference the secure URL. Stremio will only load the addon when `ADDON_BASE_URL` points to a valid HTTPS domain.
+## 📄 License
 
-Tips:
+MIT License © Sanket Gaikwad. UsenetStreamer is an independent, community-driven addon. You need active Usenet indexers + NZBDav credentials to make use of it; no media is hosted here.
 
-- Keep port 7000 (or whichever you use) firewalled; let the reverse proxy handle public traffic.
-- Renew certificates automatically (cron/systemd timer or your proxy’s auto-renew feature).
-- If you deploy behind Cloudflare or another CDN, ensure WebDAV/body sizes are allowed and HTTPS certificates stay valid.
-- Finally, add `https://myusenet.duckdns.org/super-secret-token/manifest.json` (replace with your domain + secret) to Stremio’s addon catalog. Use straight HTTPS—the addon will not show up over HTTP.
+---
 
-<h1 align="center" style="font-size:2.5rem; margin-top:2.5em;">
-   <a href="https://buymeacoffee.com/gaikwadsank">☕ Buy me a coffee to support ongoing development!</a>
-</h1>
-
-<h2 align="center" style="margin-top:0.25em;">
-   <a href="https://discord.gg/NJsprZyz">💬 Join our Discord community for discussions and support</a>
-</h2>
+<p align="center">
+  <strong>Ready?</strong> Add <code>https://your-domain/super-secret-token/manifest.json</code> to Stremio and start streaming from your own Usenet stack.
+</p>
