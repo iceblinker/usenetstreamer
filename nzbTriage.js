@@ -12,6 +12,9 @@ const ARCHIVE_EXTENSIONS = new Set(['.rar', '.r00', '.r01', '.r02', '.7z']);
 const RAR4_SIGNATURE = Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00]);
 const RAR5_SIGNATURE = Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00]);
 
+const TRIAGE_ACTIVITY_TTL_MS = 60 * 60 * 1000; // 1 hour window for keep-alives
+let lastTriageActivityTs = 0;
+
 const DEFAULT_OPTIONS = {
   archiveDirs: [],
   nntpConfig: null,
@@ -19,7 +22,7 @@ const DEFAULT_OPTIONS = {
   maxDecodedBytes: 16 * 1024,
   nntpMaxConnections: 60,
   reuseNntpPool: true,
-  nntpKeepAliveMs: 5000 ,
+  nntpKeepAliveMs: 120000 ,
   maxParallelNzbs: Number.POSITIVE_INFINITY,
   statSampleCount: 1,
   archiveSampleCount: 1,
@@ -32,6 +35,20 @@ const poolStats = {
   reused: 0,
   closed: 0,
 };
+
+function markTriageActivity() {
+  lastTriageActivityTs = Date.now();
+}
+
+function isTriageActivityFresh() {
+  if (!lastTriageActivityTs) return false;
+  return (Date.now() - lastTriageActivityTs) < TRIAGE_ACTIVITY_TTL_MS;
+}
+
+function buildKeepAliveMessageId() {
+  const randomFragment = Math.random().toString(36).slice(2, 10);
+  return `<keepalive-${Date.now().toString(36)}-${randomFragment}@invalid>`;
+}
 
 function snapshotPool(pool) {
   if (!pool) return {};
@@ -112,6 +129,7 @@ async function preWarmNntpPool(options = {}) {
 
 async function triageNzbs(nzbStrings, options = {}) {
   const config = { ...DEFAULT_OPTIONS, ...options };
+  markTriageActivity();
   const healthTimeoutMs = Number.isFinite(config.healthCheckTimeoutMs) && config.healthCheckTimeoutMs > 0
     ? config.healthCheckTimeoutMs
     : DEFAULT_OPTIONS.healthCheckTimeoutMs;
@@ -950,13 +968,16 @@ async function createNntpPool(config, maxConnections, options = {}) {
 
   const scheduleKeepAlive = (client) => {
     if (closing || noopTimers.has(client)) return;
+    if (!isTriageActivityFresh()) return;
     const timer = setTimeout(async () => {
       noopTimers.delete(client);
+      if (!isTriageActivityFresh()) return;
       try {
         const statStart = Date.now();
+        const keepAliveMessageId = buildKeepAliveMessageId();
         await Promise.race([
           new Promise((resolve, reject) => {
-            client.stat('<keepalive-test@invalid>', (err) => {
+            client.stat(keepAliveMessageId, (err) => {
               if (err && err.code === 430) {
                 resolve(); // 430 = article not found, which is expected and means socket is alive
               } else if (err) {
@@ -970,7 +991,7 @@ async function createNntpPool(config, maxConnections, options = {}) {
         ]);
         const elapsed = Date.now() - statStart;
         timingLog('nntp-keepalive:success', { durationMs: elapsed });
-        if (!closing && idle.includes(client)) {
+        if (!closing && idle.includes(client) && isTriageActivityFresh()) {
           scheduleKeepAlive(client);
         }
       } catch (err) {
@@ -1030,6 +1051,7 @@ async function createNntpPool(config, maxConnections, options = {}) {
   if (keepAliveMs > 0) {
     keepAliveTimer = setInterval(() => {
       if (closing) return;
+      if (!isTriageActivityFresh()) return;
       if (Date.now() - lastUsed < keepAliveMs) return;
       if (waiters.length > 0) return;
       if (idle.length === 0) return;
