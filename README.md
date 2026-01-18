@@ -1,20 +1,30 @@
-# UsenetStreamer
+# UsenetStreamer (Secure Fork)
 
 <p align="center">
   <img src="assets/icon.png" alt="UsenetStreamer logo" width="180" />
 </p>
 
 <p align="center">
-  <strong>Your Usenet-powered bridge between Prowlarr/NZBHydra, NZBDav, and Stremio.</strong><br />
-  Query your favorite indexers, stream directly over WebDAV, and manage it all from a friendly web dashboard.
+  <strong>Privacy-focused Stremio addon for Usenet streaming via Prowlarr/NZBDav.</strong><br />
+  Forked from the original with all telemetry removed, modular codebase (split into testable routers), hardened XML parsing against DoS, and centralized config management. No external data leaks—your credentials stay local. Supports Easynews, Newznab indexers, and NZB health checks.
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/tUwNjXSZZN"><img src="https://img.shields.io/badge/Discord-Join-blue?logo=discord&logoColor=white" alt="Join Discord" /></a>
-  <a href="https://buymeacoffee.com/gaikwadsank"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-yellow?logo=buymeacoffee&logoColor=white" alt="Buy me a coffee" /></a>
-  <a href="https://github.com/Sanket9225/UsenetStreamer/actions"><img src="https://img.shields.io/github/actions/workflow/status/Sanket9225/UsenetStreamer/docker-publish.yml?label=docker%20build" alt="CI badge" /></a>
-  <a href="https://ghcr.io/sanket9225/usenetstreamer"><img src="https://img.shields.io/badge/Docker-ghcr.io%2Fsanket9225%2Fusenetstreamer-blue?logo=docker" alt="Docker image" /></a>
+  <a href="https://github.com/iceblinker/usenetstreamer"><img src="https://img.shields.io/badge/Fork-Secure%20Version-brightgreen" alt="Secure Fork" /></a>
 </p>
+
+---
+
+## 🔒 What's Different in This Fork?
+
+| Feature | Original | This Fork |
+|---------|----------|----------|
+| Telemetry | External analytics | ❌ Removed |
+| Codebase | Monolithic server.js | ✅ Modular routers |
+| Unit Tests | None | ✅ Jest/Supertest |
+| XML Parsing | No size limits | ✅ DoS-hardened |
+| Config | Scattered globals | ✅ Centralized service |
+| DI Container | None | ✅ Clean dependency injection |
 
 ---
 
@@ -99,11 +109,12 @@
 mkdir -p ~/usenetstreamer-config
 docker run -d --restart unless-stopped \
   --name usenetstreamer \
-  -p 7000:7000 \
+  -p 7005:7005 \
+  -e PORT=7005 \
   -e ADDON_SHARED_SECRET=super-secret-token \
   -e CONFIG_DIR=/data/config \
   -v ~/usenetstreamer-config:/data/config \
-  ghcr.io/sanket9225/usenetstreamer:latest
+  ghcr.io/iceblinker/usenetstreamer:latest
 ```
 
 #### Docker Compose
@@ -111,12 +122,13 @@ docker run -d --restart unless-stopped \
 ```yaml
 services:
   usenetstreamer:
-    image: ghcr.io/sanket9225/usenetstreamer:latest
+    image: ghcr.io/iceblinker/usenetstreamer:latest
     container_name: usenetstreamer
     restart: unless-stopped
     ports:
-      - "7000:7000"
+      - "7005:7005"
     environment:
+      PORT: 7005
       ADDON_SHARED_SECRET: super-secret-token
       CONFIG_DIR: /data/config
     volumes:
@@ -128,8 +140,8 @@ Then browse to `https://your-domain/super-secret-token/admin/` to enter your cre
 ### Source installation
 
 ```bash
-git clone https://github.com/Sanket9225/UsenetStreamer.git
-cd UsenetStreamer
+git clone https://github.com/iceblinker/usenetstreamer.git
+cd usenetstreamer
 npm install
 node server.js
 ```
