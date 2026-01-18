@@ -18,6 +18,8 @@ const XML_PARSE_OPTIONS = {
   mergeAttrs: true,
   attrkey: '$',
   charkey: '_',
+  // Note: xml2js does not expand external entities by default (safe from XXE).
+  // We rely on axios maxContentLength to prevent billion laughs / memory DoS.
 };
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 45000;
@@ -509,6 +511,7 @@ async function fetchIndexerResults(config, plan, options) {
     params,
     timeout: options.timeoutMs || DEFAULT_REQUEST_TIMEOUT_MS,
     responseType: 'text',
+    maxContentLength: 10 * 1024 * 1024, // 10MB limit for indexer feeds
     validateStatus: () => true,
   });
 
@@ -631,6 +634,7 @@ async function testNewznabCaps(config, options = {}) {
     params,
     timeout: options.timeoutMs || 12000,
     responseType: 'text',
+    maxContentLength: 5 * 1024 * 1024, // 5MB limit for CAPS check
     validateStatus: () => true,
   });
   const contentType = response.headers?.['content-type'];

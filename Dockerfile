@@ -12,7 +12,7 @@ RUN npm ci --omit=dev
 COPY . .
 
 # Expose the port the addon listens on
-EXPOSE 7000
+EXPOSE 7005
 
 # Run the server
 CMD ["npm", "start"]

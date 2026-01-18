@@ -21,7 +21,7 @@ function extractTokenFromRequest(req) {
 
 function ensureSharedSecret(req, res, next) {
   const secret = (process.env.ADDON_SHARED_SECRET || '').trim();
-  
+
   if (!secret) {
     next();
     return;

@@ -85,11 +85,11 @@ function rankCandidates(candidates, preferredSizeBytes) {
   // Simple ranking by size preference only (no indexer-based priority)
   const comparator = Number.isFinite(preferredSizeBytes)
     ? (a, b) => {
-        const deltaA = Math.abs((a.size || 0) - preferredSizeBytes);
-        const deltaB = Math.abs((b.size || 0) - preferredSizeBytes);
-        if (deltaA !== deltaB) return deltaA - deltaB;
-        return (b.size || 0) - (a.size || 0);
-      }
+      const deltaA = Math.abs((a.size || 0) - preferredSizeBytes);
+      const deltaB = Math.abs((b.size || 0) - preferredSizeBytes);
+      if (deltaA !== deltaB) return deltaA - deltaB;
+      return (b.size || 0) - (a.size || 0);
+    }
     : (a, b) => (b.size || 0) - (a.size || 0);
 
   return candidates.slice().sort(comparator);
@@ -303,6 +303,7 @@ async function triageAndRank(nzbResults, options = {}) {
             Accept: 'application/x-nzb,text/xml;q=0.9,*/*;q=0.8',
             'User-Agent': 'UsenetStreamer-Triage',
           },
+          maxContentLength: 50 * 1024 * 1024, // 50MB limit for NZB files
           transitional: { silentJSONParsing: true, forcedJSONParsing: false },
         }).finally(() => {
           clearTimeout(hardTimeoutTimer);
