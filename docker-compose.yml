@@ -1,0 +1,23 @@
+services:
+  usenetstreamer:
+    build: .
+    container_name: usenetstreamer
+    restart: unless-stopped
+    ports:
+      - "7005:7005"
+    environment:
+      PORT: 7005
+      ADDON_SHARED_SECRET: ${ADDON_SHARED_SECRET:-test-secret}
+      ADDON_BASE_URL: ${ADDON_BASE_URL:-https://usenetstreamer.example.com}
+      CONFIG_DIR: /data/config
+      NZBDAV_URL: ${NZBDAV_URL}
+      NZBDAV_API_KEY: ${NZBDAV_API_KEY}
+    volumes:
+      - ./config:/data/config
+    networks:
+      - default
+      - ai_network
+
+networks:
+  ai_network:
+    external: true
