@@ -1,4 +1,4 @@
-const axios = require('axios');
+const externalApi = require('../../utils/externalApi');
 const { triageNzbs } = require('./index');
 
 const DEFAULT_TIME_BUDGET_MS = 45000;
@@ -295,13 +295,14 @@ async function triageAndRank(nzbResults, options = {}) {
           abortController.abort();
         }, downloadTimeoutMs);
 
-        const response = await axios.get(downloadUrl, {
+        const response = await externalApi.get(downloadUrl, {
+          service: 'triage',
           responseType: 'text',
           timeout: downloadTimeoutMs,
           signal: abortController.signal,
           headers: {
             Accept: 'application/x-nzb,text/xml;q=0.9,*/*;q=0.8',
-            'User-Agent': 'UsenetStreamer-Triage',
+            // Note: externalApi will adhere to the global/service UA, but we can override if needed
           },
           maxContentLength: 50 * 1024 * 1024, // 50MB limit for NZB files
           transitional: { silentJSONParsing: true, forcedJSONParsing: false },

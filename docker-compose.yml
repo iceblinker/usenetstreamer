@@ -12,6 +12,11 @@ services:
       CONFIG_DIR: /data/config
       NZBDAV_URL: ${NZBDAV_URL}
       NZBDAV_API_KEY: ${NZBDAV_API_KEY}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "1"
     volumes:
       - ./config:/data/config
     networks:

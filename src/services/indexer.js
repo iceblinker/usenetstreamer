@@ -1,5 +1,5 @@
 // Indexer service - Prowlarr and NZBHydra integration
-const axios = require('axios');
+const externalApi = require('../utils/externalApi');
 const { getPublishMetadataFromResult, areReleasesWithinDays } = require('../utils/publishInfo');
 
 // Configuration (runtime reloadable)
@@ -90,7 +90,8 @@ async function executeProwlarrSearch(plan) {
   const requestUrl = `${INDEXER_MANAGER_BASE_URL}/api/v1/search`;
   const fullUrl = serializedParams ? `${requestUrl}?${serializedParams}` : requestUrl;
   console.log('[PROWLARR] Requesting search', { url: fullUrl });
-  const response = await axios.get(fullUrl, {
+  const response = await externalApi.get(fullUrl, {
+    service: 'indexer',
     headers: { 'X-Api-Key': INDEXER_MANAGER_API_KEY },
     timeout: 60000
   });
@@ -108,7 +109,7 @@ function mapHydraSearchType(planType) {
 function applyTokenToHydraParams(token, params) {
   const match = token.match(/^\{([^:]+):(.*)\}$/);
   if (!match) return;
-  
+
   const key = match[1].trim().toLowerCase();
   const rawValue = match[2].trim();
 
@@ -260,8 +261,8 @@ function normalizeHydraResults(data) {
     };
 
     const enclosureObj = Array.isArray(enclosure) ? enclosure?.[0] : enclosure;
-    const enclosureLength = enclosureObj?.length || enclosureObj?.['@length'] || 
-                           enclosureObj?.['$']?.length || enclosureObj?.['@attributes']?.length;
+    const enclosureLength = enclosureObj?.length || enclosureObj?.['@length'] ||
+      enclosureObj?.['$']?.length || enclosureObj?.['@attributes']?.length;
 
     const sizeValue = resolveFirst(
       attrMap.size, attrMap.filesize, attrMap['contentlength'],
@@ -269,7 +270,7 @@ function normalizeHydraResults(data) {
       item.size, item.Size, enclosureLength
     );
     const parsedSize = sizeValue !== undefined ? Number.parseInt(String(sizeValue), 10) : NaN;
-    
+
     const indexer = resolveFirst(
       attrMap.indexername, attrMap.indexer, attrMap['hydraindexername'], attrMap['hydraindexer'],
       item.hydraIndexerName, item.hydraindexername, item.hydraIndexer, item.hydraindexer,
@@ -316,7 +317,8 @@ function normalizeHydraResults(data) {
 
 async function executeNzbhydraSearch(plan) {
   const params = buildHydraSearchParams(plan);
-  const response = await axios.get(`${INDEXER_MANAGER_BASE_URL}/api`, {
+  const response = await externalApi.get(`${INDEXER_MANAGER_BASE_URL}/api`, {
+    service: 'indexer',
     params,
     timeout: 60000
   });
@@ -339,10 +341,10 @@ function annotateIndexerResult(result) {
   const publishMeta = getPublishMetadataFromResult(result);
   const ageDays = publishMeta.ageDays ?? (Number.isFinite(result.age) ? Number(result.age) : null);
   const publishDateMs = publishMeta.publishDateMs ?? result.publishDateMs ?? null;
-  const publishDateIso = publishMeta.publishDateIso || result.publishDateIso || 
-                        result.publishDate || result.publish_date || null;
+  const publishDateIso = publishMeta.publishDateIso || result.publishDateIso ||
+    result.publishDate || result.publish_date || null;
   const resolvedAge = Number.isFinite(result.age) ? Number(result.age) :
-                     (ageDays !== null ? Math.round(ageDays) : undefined);
+    (ageDays !== null ? Math.round(ageDays) : undefined);
 
   return {
     ...result,

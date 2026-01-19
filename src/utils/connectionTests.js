@@ -1,4 +1,4 @@
-const axios = require('axios');
+const externalApi = require('./externalApi');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
@@ -79,7 +79,8 @@ async function verifyNzbdavDiagnosticUpload({ baseUrl, apiKey, category }) {
     headers['x-api-key'] = apiKey;
   }
 
-  const response = await axios.post(`${baseUrl}/api`, form, {
+  const response = await externalApi.post(`${baseUrl}/api`, form, {
+    service: 'nzbdav',
     params,
     headers,
     timeout: 15000,
@@ -136,7 +137,8 @@ async function testIndexerConnection(values) {
 
   if (managerType === 'prowlarr') {
     if (!apiKey) throw new Error('API key is required for Prowlarr');
-    const response = await axios.get(`${baseUrl}/api/v1/system/status`, {
+    const response = await externalApi.get(`${baseUrl}/api/v1/system/status`, {
+      service: 'indexer',
       headers: { 'X-Api-Key': apiKey },
       timeout,
       validateStatus: () => true,
@@ -154,13 +156,14 @@ async function testIndexerConnection(values) {
   // NZBHydra uses /api endpoint with query parameters for all operations
   const params = { t: 'caps', o: 'json' };
   if (apiKey) params.apikey = apiKey;
-  
-  const response = await axios.get(`${baseUrl}/api`, {
+
+  const response = await externalApi.get(`${baseUrl}/api`, {
+    service: 'indexer',
     params,
     timeout,
     validateStatus: () => true,
   });
-  
+
   if (response.status === 200) {
     // Successful response from NZBHydra API
     // Try to extract version from various possible response formats
@@ -203,7 +206,8 @@ async function testNzbdavConnection(values) {
       category: diagnosticCategory,
     });
 
-    const webdavResponse = await axios.request({
+    const webdavResponse = await externalApi.request({
+      service: 'nzbdav',
       method: 'PROPFIND',
       url: `${webdavUrl}/`,
       auth: {
@@ -394,12 +398,13 @@ async function testNewznabSearch(values) {
 async function testTmdbConnection(values) {
   const apiKey = (values?.TMDB_API_KEY || '').trim();
   if (!apiKey) throw new Error('TMDb API Key is required');
-  
+
   const timeout = 8000;
-  
+
   try {
     // Test the API key by fetching configuration
-    const response = await axios.request({
+    const response = await externalApi.request({
+      service: 'tmdb',
       method: 'GET',
       url: 'https://api.themoviedb.org/3/configuration',
       headers: {

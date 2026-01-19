@@ -75,9 +75,9 @@ function reloadConfig() {
   const languagesStr = (process.env.TMDB_SEARCH_LANGUAGES || '').trim();
   TMDB_SEARCH_LANGUAGES = languagesStr ? languagesStr.split(',').map(l => l.trim()).filter(Boolean) : [];
   TMDB_SEARCH_MODE = (process.env.TMDB_SEARCH_MODE || 'regional_only').trim();
-
-  console.log('[TMDB] Config reloaded', {
-    hasApiKey: Boolean(TMDB_API_KEY),
+  
+  console.log('[TMDB] Config reloaded', { 
+    hasApiKey: Boolean(TMDB_API_KEY), 
     additionalLanguages: TMDB_SEARCH_LANGUAGES,
     searchMode: TMDB_SEARCH_MODE,
   });
@@ -355,22 +355,22 @@ async function getMetadataAndTitles({ imdbId, type }) {
   // Step 1: Always fetch original language title (auto-detect)
   const originalLocale = langMap[originalLanguage] || `${originalLanguage}-${originalLanguage.toUpperCase()}`;
   console.log(`[TMDB] Auto-detect: fetching original language [${originalLanguage}] as ${originalLocale}`);
-
+  
   // Step 2: Determine all languages to fetch
   const languagesToFetch = [originalLocale];
-
+  
   // Add English if search mode requires it and original isn't English
   if (TMDB_SEARCH_MODE === 'english_and_regional' && originalLanguage !== 'en') {
     languagesToFetch.push('en-US');
   }
-
+  
   // Add additional selected languages
   if (TMDB_SEARCH_LANGUAGES.length > 0) {
     languagesToFetch.push(...TMDB_SEARCH_LANGUAGES);
   }
-
+  
   console.log(`[TMDB] Fetching ${languagesToFetch.length} language(s) in parallel:`, languagesToFetch);
-
+  
   // Step 3: Fetch all languages in parallel
   const fetchPromises = languagesToFetch.map(async (language) => {
     try {
@@ -390,9 +390,9 @@ async function getMetadataAndTitles({ imdbId, type }) {
     }
     return null;
   });
-
+  
   const fetchedTitles = await Promise.all(fetchPromises);
-
+  
   // Step 4: Add unique titles to result
   fetchedTitles.forEach((titleObj) => {
     if (titleObj && !seenTitles.has(titleObj.title.toLowerCase())) {

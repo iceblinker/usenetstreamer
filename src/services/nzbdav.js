@@ -1,5 +1,5 @@
 // NZBDav service - NZB queue management, WebDAV operations, and stream handling
-const axios = require('axios');
+const externalApi = require('../utils/externalApi');
 const FormData = require('form-data');
 const path = require('path');
 const fs = require('fs');
@@ -156,7 +156,8 @@ async function addNzbToNzbdav({ downloadUrl, cachedEntry = null, category, jobLa
         output: 'json'
       });
 
-      const response = await axios.post(`${NZBDAV_URL}/api`, form, {
+      const response = await externalApi.post(`${NZBDAV_URL}/api`, form, {
+        service: 'nzbdav',
         params,
         timeout: NZBDAV_API_TIMEOUT_MS,
         headers,
@@ -203,7 +204,8 @@ async function addNzbToNzbdav({ downloadUrl, cachedEntry = null, category, jobLa
     headers['x-api-key'] = NZBDAV_API_KEY;
   }
 
-  const response = await axios.get(`${NZBDAV_URL}/api`, {
+  const response = await externalApi.get(`${NZBDAV_URL}/api`, {
+    service: 'nzbdav',
     params,
     timeout: NZBDAV_API_TIMEOUT_MS,
     headers,
@@ -241,7 +243,8 @@ async function waitForNzbdavHistorySlot(nzoId, category) {
       headers['x-api-key'] = NZBDAV_API_KEY;
     }
 
-    const response = await axios.get(`${NZBDAV_URL}/api`, {
+    const response = await externalApi.get(`${NZBDAV_URL}/api`, {
+      service: 'nzbdav',
       params,
       timeout: NZBDAV_HISTORY_TIMEOUT_MS,
       headers,
@@ -304,7 +307,8 @@ async function fetchCompletedNzbdavHistory(categories = []) {
         headers['x-api-key'] = NZBDAV_API_KEY;
       }
 
-      const response = await axios.get(`${NZBDAV_URL}/api`, {
+      const response = await externalApi.get(`${NZBDAV_URL}/api`, {
+        service: 'nzbdav',
         params,
         timeout: NZBDAV_HISTORY_TIMEOUT_MS,
         headers,
@@ -754,8 +758,9 @@ async function proxyNzbdavStream(req, res, viewPath, fileNameHint = '') {
     const headConfig = {
       url: targetUrl,
       method: 'HEAD',
+      service: 'nzbdav',
       headers: {
-        'User-Agent': headers['User-Agent'] || `UsenetStreamer/${ADDON_VERSION}`
+        ...(headers['User-Agent'] ? { 'User-Agent': headers['User-Agent'] } : {})
       },
       timeout: 30000,
       validateStatus: (status) => status < 500
@@ -769,7 +774,7 @@ async function proxyNzbdavStream(req, res, viewPath, fileNameHint = '') {
     }
 
     try {
-      const headResponse = await axios.request(headConfig);
+      const headResponse = await externalApi.request(headConfig);
       const headHeadersLower = Object.keys(headResponse.headers || {}).reduce((map, key) => {
         map[key.toLowerCase()] = headResponse.headers[key];
         return map;
@@ -802,7 +807,7 @@ async function proxyNzbdavStream(req, res, viewPath, fileNameHint = '') {
 
   console.log(`[NZBDAV] Proxying ${proxiedMethod}${emulateHead ? ' (HEAD emulation)' : ''} ${targetUrl}`);
 
-  const nzbdavResponse = await axios.request(requestConfig);
+  const nzbdavResponse = await externalApi.request(requestConfig);
 
   let responseStatus = nzbdavResponse.status;
   const responseHeadersLower = Object.keys(nzbdavResponse.headers || {}).reduce((map, key) => {
