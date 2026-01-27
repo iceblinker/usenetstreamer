@@ -1,24 +1,75 @@
 services:
-  usenetstreamer:
+  usenetstreamer-en:
     build: .
-    container_name: usenetstreamer
+    container_name: usenetstreamer-en
     restart: unless-stopped
     ports:
       - "7005:7005"
     environment:
       PORT: 7005
-      ADDON_SHARED_SECRET: ${ADDON_SHARED_SECRET:-test-secret}
-      ADDON_BASE_URL: ${ADDON_BASE_URL:-https://usenetstreamer.example.com}
+      ADDON_SHARED_SECRET: english-secret
+      ADDON_BASE_URL: ${ADDON_BASE_URL_EN:-https://usenetstreamer-en.138.199.156.62.sslip.io}
       CONFIG_DIR: /data/config
       NZBDAV_URL: ${NZBDAV_URL}
       NZBDAV_API_KEY: ${NZBDAV_API_KEY}
+      NZB_PREFERRED_LANGUAGE: en
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "1"
     volumes:
-      - ./config:/data/config
+      - ./config_en:/data/config
+    networks:
+      - default
+      - ai_network
+
+  usenetstreamer-it:
+    build: .
+    container_name: usenetstreamer-it
+    restart: unless-stopped
+    ports:
+      - "7006:7005"
+    environment:
+      PORT: 7005
+      ADDON_SHARED_SECRET: italian-secret
+      ADDON_BASE_URL: ${ADDON_BASE_URL_IT:-https://usenetstreamer-it.138.199.156.62.sslip.io}
+      CONFIG_DIR: /data/config
+      NZBDAV_URL: ${NZBDAV_URL}
+      NZBDAV_API_KEY: ${NZBDAV_API_KEY}
+      NZB_PREFERRED_LANGUAGE: it
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "1"
+    volumes:
+      - ./config_it:/data/config
+    networks:
+      - default
+      - ai_network
+
+  usenetstreamer-es:
+    build: .
+    container_name: usenetstreamer-es
+    restart: unless-stopped
+    ports:
+      - "7007:7005"
+    environment:
+      PORT: 7005
+      ADDON_SHARED_SECRET: spanish-secret
+      ADDON_BASE_URL: ${ADDON_BASE_URL_ES:-https://usenetstreamer-es.138.199.156.62.sslip.io}
+      CONFIG_DIR: /data/config
+      NZBDAV_URL: ${NZBDAV_URL}
+      NZBDAV_API_KEY: ${NZBDAV_API_KEY}
+      NZB_PREFERRED_LANGUAGE: es
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "1"
+    volumes:
+      - ./config_es:/data/config
     networks:
       - default
       - ai_network
